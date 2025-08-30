@@ -32,24 +32,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 步骤2：设置构建标签
-      - name: Set up tags
-        id: set-tags
+      # 步骤2：设置版本标签变量
+      - name: Set up version tag
+        id: set-version
         run: |
-          # 设置默认标签
-          TAGS="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
-          TAGS="$TAGS ${{ env.DOCKERHUB_IMAGE_NAME }}:latest"
-          
-          # 如果选择构建特定版本，添加版本标签
+          # 如果选择构建特定版本，设置版本标签
           if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
             VERSION_TAG="${{ github.event.inputs.custom_tag || 'v2.1' }}"
-            TAGS="$TAGS ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:$VERSION_TAG"
-            TAGS="$TAGS ${{ env.DOCKERHUB_IMAGE_NAME }}:$VERSION_TAG"
             echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
+            echo "Version tag: $VERSION_TAG"
+          else
+            echo "Skipping version tag build"
           fi
-          
-          echo "TAGS=$TAGS" >> $GITHUB_ENV
-          echo "Tags to build: $TAGS"
 
       # 步骤3：设置QEMU（用于多平台构建）
       - name: Set up QEMU
@@ -85,7 +79,11 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.TAGS }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
@@ -108,16 +106,16 @@ jobs:
       - name: Show build information
         run: |
           echo "=== Build Summary ==="
-          echo "Built tags: ${{ env.TAGS }}"
-          echo ""
-          echo "GitHub Container Registry Images:"
+          echo "Built tags:"
           echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
-          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
-            echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
-          fi
-          echo ""
-          echo "Docker Hub Images:"
           echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:latest"
           if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
+            echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
             echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
           fi
+          echo ""
+          echo "GitHub Container Registry:"
+          echo "https://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          echo ""
+          echo "Docker Hub:"
+          echo "https://hub.docker.com/r/${{ env.DOCKERHUB_IMAGE_NAME }}"
