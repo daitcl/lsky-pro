@@ -1,0 +1,103 @@
+version: '3.8'
+services:
+  # Lsky Pro 主应用服务
+  lskypro:
+    image: "daitcl/lsky-pro:latest"  # 使用自定义 Lsky Pro 镜像
+    restart: always                  # 总是重启，确保服务高可用
+    hostname: lskypro                # 容器主机名
+    container_name: lskypro          # 容器名称
+    volumes:
+      # 数据目录挂载 - 上传的文件
+      - ".lsky_pro/uploads:/var/www/html/storage/app/uploads"
+      # 数据目录挂载 - 缩略图缓存
+      - ".lsky_pro/thumbnails:/var/www/html/public/thumbnails"
+      # 数据目录挂载 - 公开存储文件
+      - ".lsky_pro/public-storage:/var/www/html/storage/app/public"
+      # 数据目录挂载 - 框架缓存数据
+      - ".lsky_pro/cache:/var/www/html/storage/framework/cache/data"
+      # 环境配置文件挂载 - 应用配置
+      - ".lsky_pro/env:/var/www/html/.env"
+    ports:
+      - "8089:8089"  # HTTP 端口映射
+      - "8088:8088"  # HTTPS 端口映射
+    environment:
+      - WEB_PORT=8089                # Web 服务端口
+      - HTTPS_PORT=8088              # HTTPS 服务端口
+      - TZ=Asia/Shanghai             # 时区设置
+      - DB_HOST=lskypro_mysql        # 数据库主机地址
+      - DB_PORT=3306                 # 数据库端口
+      - DB_DATABASE=lskypro          # 数据库名称
+      - DB_USERNAME=root             # 数据库用户名
+      - DB_PASSWORD=Tian1234567      # 数据库密码
+      - MEMCACHED_HOST=lskypro_memcached  # Memcached 主机地址
+      - MEMCACHED_PORT=11211         # Memcached 端口
+      - CACHE_DRIVER=memcached       # 缓存驱动类型
+      - IMAGE_AUDIT_DRIVER=nsfwjs    # 图片审核驱动
+      - NSFWAUDIT_ENDPOINT=http://lskypro_nsfwjs:5000  # 图片审核端点地址
+      - NSFWAUDIT_FIELD_NAME=url     # 图片审核字段名称
+    depends_on:
+      - lskypro_mysql                # 依赖 MySQL 服务
+      - lskypro_memcached            # 依赖 Memcached 服务
+      - lskypro_nsfwjs               # 依赖 NSFWJS 服务
+    networks:
+      onedev:
+        ipv4_address: 172.26.0.4     # 固定 IPv4 地址
+
+  # MySQL 数据库服务
+  lskypro_mysql:
+    image: "mysql:5.7.22"            # MySQL 5.7.22 镜像
+    restart: always                  # 总是重启
+    hostname: lskypro_mysql          # 容器主机名
+    container_name: lskypro_mysql    # 容器名称
+    command: --default-authentication-plugin=mysql_native_password  # MySQL 认证插件设置
+    volumes:
+      # 数据目录挂载 - MySQL 数据文件
+      - ".lsky_pro/mysql/data:/var/lib/mysql"
+      # 配置目录挂载 - MySQL 配置文件
+      - ".lsky_pro/mysql/conf:/etc/mysql"
+      # 日志目录挂载 - MySQL 日志文件
+      - ".lsky_pro/mysql/log:/var/log/mysql"
+    environment:
+      MYSQL_ROOT_PASSWORD: Tian1234567  # MySQL root 用户密码
+      MYSQL_DATABASE: lskypro        # 默认数据库名称
+      TZ: Asia/Shanghai              # 时区设置
+    networks:
+      onedev:
+        ipv4_address: 172.26.0.5     # 固定 IPv4 地址
+
+  # Memcached 缓存服务
+  lskypro_memcached:
+    image: "memcached:1.6-alpine"    # Memcached Alpine 镜像
+    container_name: lskypro_memcached  # 容器名称
+    hostname: lskypro_memcached      # 容器主机名
+    restart: always                  # 总是重启
+    networks:
+      onedev:
+        ipv4_address: 172.26.0.6     # 固定 IPv4 地址
+
+  # NSFWJS 图片审核服务
+  lskypro_nsfwjs:
+    image: "eugencepoi/nsfw_api:latest"  # NSFWJS API 镜像
+    container_name: lskypro_nsfwjs   # 容器名称
+    hostname: lskypro_nsfwjs         # 容器主机名
+    restart: always                  # 总是重启
+    environment:
+      PORT: 5000                     # 服务端口
+    networks:
+      onedev:
+        ipv4_address: 172.26.0.7     # 固定 IPv4 地址
+
+# 网络配置
+networks:
+  onedev:
+    enable_ipv6: true                # 启用 IPv6
+    name: onedev                     # 网络名称
+    driver: bridge                   # 网络驱动类型
+    driver_opts:
+      com.docker.network.enable_ipv6: "true"  # 启用 IPv6 选项
+    ipam:
+      config:
+        - subnet: 172.26.0.0/24      # IPv4 子网
+          gateway: 172.26.0.1        # IPv4 网关
+        - subnet: "2600:f0d0:1006:50:4000::/66"  # IPv6 子网
+          gateway: 2600:f0d0:1006:50:4000::1  # IPv6 网关
