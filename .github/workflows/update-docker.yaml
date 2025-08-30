@@ -80,7 +80,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_PASSWORD || secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.DOCKERHUB_IMAGE_NAME }}
           readme-filepath: ./README.md
-          short-description: "Lsky Pro Docker image with PHP, MySQL, Memcached and NSFWJS support"
+          short-description: "☁️兰空图床(Lsky Pro) - Docker自动构建，支持多平台，提供最新版和指定版本镜像"
 
       # 步骤8：显示构建信息
       - name: Show build information
