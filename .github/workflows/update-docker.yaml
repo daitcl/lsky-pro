@@ -1,19 +1,26 @@
 name: Build and push Lsky Pro Docker images
 
+# 只允许手动触发
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - Dockerfile
-      - .github/workflows/update-docker.yaml
+  workflow_dispatch:
+    # 可选：添加输入参数，允许手动触发时指定是否构建特定版本
+    inputs:
+      build_version:
+        description: '是否构建特定版本 (true/false)'
+        required: false
+        default: 'true'
+        type: boolean
+      custom_tag:
+        description: '自定义版本标签 (例如: v2.1.1)'
+        required: false
+        default: 'v2.1'
+        type: string
 
 env:
   TZ: Asia/Shanghai
   IMAGE_NAME: lsky-pro
   REGISTRY: ghcr.io
   DOCKERHUB_IMAGE_NAME: daitcl/lsky-pro
-  VERSION_TAG: v2.1
 
 jobs:
   docker:
@@ -25,18 +32,37 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 步骤2：设置QEMU（用于多平台构建）
+      # 步骤2：设置构建标签
+      - name: Set up tags
+        id: set-tags
+        run: |
+          # 设置默认标签
+          TAGS="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
+          TAGS="$TAGS ${{ env.DOCKERHUB_IMAGE_NAME }}:latest"
+          
+          # 如果选择构建特定版本，添加版本标签
+          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
+            VERSION_TAG="${{ github.event.inputs.custom_tag || 'v2.1' }}"
+            TAGS="$TAGS ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:$VERSION_TAG"
+            TAGS="$TAGS ${{ env.DOCKERHUB_IMAGE_NAME }}:$VERSION_TAG"
+            echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
+          fi
+          
+          echo "TAGS=$TAGS" >> $GITHUB_ENV
+          echo "Tags to build: $TAGS"
+
+      # 步骤3：设置QEMU（用于多平台构建）
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 步骤3：设置Docker Buildx
+      # 步骤4：设置Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           driver: docker-container
           install: true
 
-      # 步骤4：登录到GitHub Container Registry
+      # 步骤5：登录到GitHub Container Registry
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -44,14 +70,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 步骤5：登录到DockerHub
+      # 步骤6：登录到DockerHub
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 步骤6：构建和推送镜像到GHCR和DockerHub
+      # 步骤7：构建和推送镜像到GHCR和DockerHub
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -59,20 +85,16 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
-            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest
-            ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG }}
+          tags: ${{ env.TAGS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ env.VERSION_TAG }}
+            org.opencontainers.image.version=${{ env.VERSION_TAG || 'latest' }}
 
-      # 步骤7：更新Docker Hub描述
+      # 步骤8：更新Docker Hub描述
       - name: Update Docker Hub description
         uses: peter-evans/dockerhub-description@v4
         with:
@@ -82,16 +104,20 @@ jobs:
           readme-filepath: ./README.md
           short-description: "☁️兰空图床(Lsky Pro) - Docker自动构建，支持多平台，提供最新版和指定版本镜像"
 
-      # 步骤8：显示构建信息
+      # 步骤9：显示构建信息
       - name: Show build information
         run: |
           echo "=== Build Summary ==="
-          echo "Version Tag: ${{ env.VERSION_TAG }}"
+          echo "Built tags: ${{ env.TAGS }}"
           echo ""
           echo "GitHub Container Registry Images:"
           echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
-          echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}"
+          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
+            echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
+          fi
           echo ""
           echo "Docker Hub Images:"
           echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:latest"
-          echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG }}"
+          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
+            echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
+          fi
