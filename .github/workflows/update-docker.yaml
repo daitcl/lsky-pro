@@ -1,4 +1,4 @@
-name: Build and push
+name: Build and Push
 
 # 只允许手动触发
 on:
@@ -20,46 +20,45 @@ env:
   IMAGE_NAME: lsky-pro
   REGISTRY: ghcr.io
   DOCKERHUB_IMAGE_NAME: daitcl/lsky-pro
+  # 定义要构建的平台，用逗号分隔
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
-  docker:
+  # 第一个 Job：准备环境和设置，并为后续构建提供缓存
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      image_full_name: ${{ steps.setup.outputs.image_full_name }}
+      version_tag: ${{ steps.setup.outputs.version_tag }}
     steps:
-      # 步骤1：检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # 步骤2：设置镜像完整名称和版本标签变量
-      - name: Set up image name and version tag
-        id: set-image-info
+      - name: Setup Build Info
+        id: setup
         run: |
           # 设置镜像完整名称
-          echo "IMAGE_FULL_NAME=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
-          echo "Set IMAGE_FULL_NAME=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          
-          # 如果选择构建特定版本，设置版本标签
-          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
-            VERSION_TAG="${{ github.event.inputs.custom_tag || 'v2.1' }}"
-            echo "VERSION_TAG=$VERSION_TAG" >> $GITHUB_ENV
-            echo "Version tag: $VERSION_TAG"
-          else
-            echo "Skipping version tag build"
-          fi
+          IMAGE_FULL_NAME="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          echo "image_full_name=$IMAGE_FULL_NAME" >> $GITHUB_OUTPUT
 
-      # 步骤3：设置QEMU（用于多平台构建）
+          # 设置版本标签
+          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
+            VERSION_TAG="${{ github.event.inputs.custom_tag }}"
+          else
+            VERSION_TAG=""
+          fi
+          echo "version_tag=$VERSION_TAG" >> $GITHUB_OUTPUT
+          echo "Version tag: $VERSION_TAG"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 步骤4：设置Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           driver: docker-container
           install: true
 
-      # 步骤5：登录到GitHub Container Registry
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -67,35 +66,131 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 步骤6：登录到DockerHub
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 步骤7：构建和推送镜像到GHCR和DockerHub
-      - name: Build and push
+  # 第二个 Job：构建并推送 linux/amd64 平台镜像
+  build-amd64:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
+
+      - name: Build and push linux/amd64
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE_FULL_NAME }}:latest
-            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest
-            ${{ env.IMAGE_FULL_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
-            ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
+            ${{ needs.prepare.outputs.image_full_name }}:latest-amd64
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest-amd64
+            ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }}-amd64
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}-amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ env.VERSION_TAG || 'latest' }}
 
-      # 步骤8：更新Docker Hub描述
+  # 第三个 Job：构建并推送 linux/arm64 平台镜像
+  build-arm64:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
+
+      - name: Build and push linux/arm64
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_full_name }}:latest-arm64
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest-arm64
+            ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }}-arm64
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}-arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 第四个 Job：创建多平台 Manifest 并推送
+  manifest:
+    needs: [prepare, build-amd64, build-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push manifest for GHCR
+        run: |
+          docker buildx imagetools create \
+            -t ${{ needs.prepare.outputs.image_full_name }}:latest \
+            ${{ needs.prepare.outputs.image_full_name }}:latest-amd64 \
+            ${{ needs.prepare.outputs.image_full_name }}:latest-arm64
+
+          if [ -n "${{ needs.prepare.outputs.version_tag }}" ]; then
+            docker buildx imagetools create \
+              -t ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }} \
+              ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }}-amd64 \
+              ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }}-arm64
+          fi
+
+      - name: Create and push manifest for DockerHub
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.DOCKERHUB_IMAGE_NAME }}:latest \
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest-amd64 \
+            ${{ env.DOCKERHUB_IMAGE_NAME }}:latest-arm64
+
+          if [ -n "${{ needs.prepare.outputs.version_tag }}" ]; then
+            docker buildx imagetools create \
+              -t ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }} \
+              ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}-amd64 \
+              ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}-arm64
+          fi
+
       - name: Update Docker Hub description
         uses: peter-evans/dockerhub-description@v4
         with:
@@ -105,16 +200,15 @@ jobs:
           readme-filepath: ./README.md
           short-description: "☁️兰空图床(Lsky Pro) - Docker自动构建，支持多平台，提供最新版和指定版本镜像"
 
-      # 步骤9：显示构建信息
       - name: Show build information
         run: |
           echo "=== Build Summary ==="
-          echo "Built tags:"
-          echo "- ${{ env.IMAGE_FULL_NAME }}:latest"
+          echo "Multi-arch image pushed with tags:"
+          echo "- ${{ needs.prepare.outputs.image_full_name }}:latest"
           echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:latest"
-          if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
-            echo "- ${{ env.IMAGE_FULL_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
-            echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
+          if [ -n "${{ needs.prepare.outputs.version_tag }}" ]; then
+            echo "- ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }}"
+            echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}"
           fi
           echo ""
           echo "GitHub Container Registry:"
