@@ -20,11 +20,9 @@ env:
   IMAGE_NAME: lsky-pro
   REGISTRY: ghcr.io
   DOCKERHUB_IMAGE_NAME: daitcl/lsky-pro
-  # 定义要构建的平台，用逗号分隔
-  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
-  # 第一个 Job：准备环境和设置，并为后续构建提供缓存
+  # 第一个 Job：准备环境和设置
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -43,12 +41,20 @@ jobs:
 
           # 设置版本标签
           if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
-            VERSION_TAG="${{ github.event.inputs.custom_tag }}"
+            VERSION_TAG="${{ github.event.inputs.custom_tag || 'v2.1' }}"
           else
             VERSION_TAG=""
           fi
           echo "version_tag=$VERSION_TAG" >> $GITHUB_OUTPUT
           echo "Version tag: $VERSION_TAG"
+
+  # 第二个 Job：构建并推送 linux/amd64 平台镜像
+  build-amd64:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -72,23 +78,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  # 第二个 Job：构建并推送 linux/amd64 平台镜像
-  build-amd64:
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
-          install: true
-
       - name: Build and push linux/amd64
         uses: docker/build-push-action@v5
         with:
@@ -103,6 +92,11 @@ jobs:
             ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}-amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version_tag || 'latest' }}
 
   # 第三个 Job：构建并推送 linux/arm64 平台镜像
   build-arm64:
@@ -121,6 +115,19 @@ jobs:
           driver: docker-container
           install: true
 
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push linux/arm64
         uses: docker/build-push-action@v5
         with:
@@ -135,6 +142,11 @@ jobs:
             ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}-arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version_tag || 'latest' }}
 
   # 第四个 Job：创建多平台 Manifest 并推送
   manifest:
@@ -165,11 +177,13 @@ jobs:
 
       - name: Create and push manifest for GHCR
         run: |
+          # 创建并推送 latest 标签的 manifest
           docker buildx imagetools create \
             -t ${{ needs.prepare.outputs.image_full_name }}:latest \
             ${{ needs.prepare.outputs.image_full_name }}:latest-amd64 \
             ${{ needs.prepare.outputs.image_full_name }}:latest-arm64
-
+          
+          # 如果指定了版本标签，则创建并推送版本标签的 manifest
           if [ -n "${{ needs.prepare.outputs.version_tag }}" ]; then
             docker buildx imagetools create \
               -t ${{ needs.prepare.outputs.image_full_name }}:${{ needs.prepare.outputs.version_tag }} \
@@ -179,11 +193,13 @@ jobs:
 
       - name: Create and push manifest for DockerHub
         run: |
+          # 创建并推送 latest 标签的 manifest
           docker buildx imagetools create \
             -t ${{ env.DOCKERHUB_IMAGE_NAME }}:latest \
             ${{ env.DOCKERHUB_IMAGE_NAME }}:latest-amd64 \
             ${{ env.DOCKERHUB_IMAGE_NAME }}:latest-arm64
-
+          
+          # 如果指定了版本标签，则创建并推送版本标签的 manifest
           if [ -n "${{ needs.prepare.outputs.version_tag }}" ]; then
             docker buildx imagetools create \
               -t ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }} \
