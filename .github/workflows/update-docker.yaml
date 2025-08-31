@@ -3,7 +3,6 @@ name: Build and push Lsky Pro Docker images
 # 只允许手动触发
 on:
   workflow_dispatch:
-    # 可选：添加输入参数，允许手动触发时指定是否构建特定版本
     inputs:
       build_version:
         description: '是否构建特定版本 (true/false)'
@@ -32,10 +31,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 步骤2：设置版本标签变量
-      - name: Set up version tag
-        id: set-version
+      # 步骤2：设置镜像完整名称和版本标签变量
+      - name: Set up image name and version tag
+        id: set-image-info
         run: |
+          # 设置镜像完整名称
+          echo "IMAGE_FULL_NAME=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
+          echo "Set IMAGE_FULL_NAME=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          
           # 如果选择构建特定版本，设置版本标签
           if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
             VERSION_TAG="${{ github.event.inputs.custom_tag || 'v2.1' }}"
@@ -80,9 +83,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_FULL_NAME }}:latest
             ${{ env.DOCKERHUB_IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
+            ${{ env.IMAGE_FULL_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
             ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -107,10 +110,10 @@ jobs:
         run: |
           echo "=== Build Summary ==="
           echo "Built tags:"
-          echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest"
+          echo "- ${{ env.IMAGE_FULL_NAME }}:latest"
           echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:latest"
           if [ "${{ github.event.inputs.build_version }}" = "true" ]; then
-            echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
+            echo "- ${{ env.IMAGE_FULL_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
             echo "- ${{ env.DOCKERHUB_IMAGE_NAME }}:${{ env.VERSION_TAG || 'v2.1' }}"
           fi
           echo ""
