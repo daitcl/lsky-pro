@@ -8,9 +8,9 @@
   <a href="https://github.com/daitcl/lsky-pro/blob/main/License">
     <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="MIT许可证">
   </a>
-  <a href="https://hub.docker.com/r/daitcl/lsky-pro">
-    <img src="https://img.shields.io/docker/pulls/daitcl/lsky-pro?logo=docker&label=Docker%20Hub%20Pulls" alt="Docker Hub Pulls">
-  </a>
+ <a href="https://hub.docker.com/r/daitcl/lsky-pro">
+   <img src="https://img.shields.io/docker/pulls/daitcl/lsky-pro" alt="Docker Hub Pulls">
+ </a>
   <a href="https://github.com/daitcl/lsky-pro/pkgs/container/lsky-pro">
     <img src="https://img.shields.io/badge/GHCR.io-Package-blue?logo=github" alt="GHCR Package">
   </a>
